@@ -20,8 +20,12 @@ from sklearn.utils._testing import ignore_warnings
 from sklearn.exceptions import ConvergenceWarning
 
 
-class LEAR(object):
-    """Class to build a LEAR model, recalibrate it, and use it to predict DA electricity prices.
+class LEAR_old(object):
+    """
+
+    <<<<The original version og the class.>>>>
+
+    Class to build a LEAR model, recalibrate it, and use it to predict DA electricity prices.
     
     An example on how to use this class is provided :ref:`here<learex2>`.
     
