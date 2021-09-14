@@ -38,10 +38,12 @@ class LEAR(object):
     - Not recalibrating in every forecast loop (daily) is now more convenient. Previously all the methods were there,
       but had to be called manually in the forecast loop. In addition training data arrays would be constructed, even
       though only test data is needed.
-    - changed variable names to Python naming conventions (eg. predDatesTrain -> pred_dates_train)
+    - Changed variable names to Python naming conventions (eg. predDatesTrain -> pred_dates_train)
+    - Added parameter for choosing the scaling type for pre-processing X. The methods for choosing scaling were there,
+      but the used sclaing was hard-coded.
 
     An example on how to use this class is provided :ref:`here<learex2>`.
-    
+
     Parameters
     ----------
     calibration_window : int, optional
@@ -51,20 +53,36 @@ class LEAR(object):
         The number of lags for the exogenous features. If list of ints, then the same
         lags are applied for all exogenous features. If list of lists of ints then
         the number of lists must match the number of exogenous features.
-        
+
+    scaling_type : str, optional
+        Must be one of:
+        - ``'Norm'`` for normalizing the data to the interval [0, 1].
+
+        - ``'Norm1'`` for normalizing the data to the interval [-1, 1].
+
+        - ``'Std'`` for standarizing the data to follow a normal distribution.
+
+        - ``'Median'`` for normalizing the data based on the median as defined in as defined in `here
+            <https://doi.org/10.1109/TPWRS.2017.2734563>`_.
+
+        - ``'Invariant'`` for scaling the data based on the asinh transformation (a variance stabilizing
+            transformations) as defined in `here <https://doi.org/10.1109/TPWRS.2017.2734563>`_.
+
     """
 
-    def __init__(self, calibration_window=364 * 3, lags=[1, 2]):
+    def __init__(self, calibration_window=364 * 3, lags=[1, 2], scaling_type="Invariant"):
+
         # Calibration window in hours
         self.calibration_window = calibration_window
         self.lags = lags
+        self.scaling_type =scaling_type
 
     # Ignore convergence warnings from scikit-learn LASSO module
     @ignore_warnings(category=ConvergenceWarning)
     def recalibrate(self, X_train, Y_train):
         """Function to recalibrate the LEAR model. 
         
-        It uses a training (Xtrain, Ytrain) pair for recalibration
+        It uses a training (X_train, Y_train) pair for recalibration
         
         Parameters
         ----------
@@ -84,11 +102,11 @@ class LEAR(object):
         """
 
         # # Applying Invariant, aka asinh-median transformation to the prices
-        [Y_train], self.scalerY = scaling([Y_train], 'Invariant')
+        [Y_train], self.scalerY = scaling([Y_train], self.scaling_type)
 
         # # Rescaling all inputs except dummies (7 last features)
-        [Xtrain_no_dummies], self.scalerX = scaling([X_train[:, :-7]], 'Invariant')
-        X_train[:, :-7] = Xtrain_no_dummies
+        [X_train_no_dummies], self.scalerX = scaling([X_train[:, :-7]], self.scaling_type)
+        X_train[:, :-7] = X_train_no_dummies
 
         self.models = {}
         for h in range(24):
@@ -317,14 +335,36 @@ class LEAR(object):
                 # Extracting Y value based on time indices
                 Y_train[:, hour] = df_train.loc[future_index_train, 'Price']
 
-        # Remove features with 0 MAD
+        # Remove features with 0 scaling factor
         # Only check features for being constant when calibrating
         if calibration:
-            self.const_features = np.where(mad(X_train[:, :-7], axis=0) == 0)[0]
-            X_train = np.concatenate([np.delete(X_train[:, :-7], self.const_features, axis=1), X_train[:, -7:]], axis=1)
-        X_test = np.concatenate([np.delete(X_test[:, :-7], self.const_features, axis=1), X_test[:, -7:]], axis=1)
+            if self.scaling_type == "Invariant":
+                scaling_metric="MAD"
+            elif self.scaling_type== "Std":
+                scaling_metric = "std"
+            elif self.scaling_type in ["Norm","Norm1","Median"]:
+                raise NotImplementedError("Checking scalability not yet implemented for all scaling types!")
+            else:
+                raise ValueError("Invalid scaling_type!")
+            self.find_constant_features(X_train,scaling_metric)
+            X_train=self.remove_constant_features(X_train)
+        X_test = self.remove_constant_features(X_test)
 
         return X_train, Y_train, X_test
+
+    def find_constant_features(self,array,scale_metric="MAD"):
+        assert(isinstance(scale_metric,str))
+        if scale_metric in ["MAD","mad"]:
+            self.const_features = np.where(mad(array[:, :-7], axis=0) == 0)[0]
+        elif scale_metric in ["std","Std","STD","stdev","STDEV","variance","var","Var","VAR"]:
+            self.const_features = np.where(np.std(array[:, :-7], axis=0) == 0)[0]
+        else:
+            raise ValueError("Invalid scale metric: " + scale_metric)
+        return
+
+    def remove_constant_features(self, array):
+        array = np.concatenate([np.delete(array[:, :-7], self.const_features, axis=1), array[:, -7:]], axis=1)
+        return array
 
     def recalibrate_and_forecast_next_day(self, df, next_day_date):
         """Easy-to-use interface for daily recalibration and forecasting of the LEAR model.
