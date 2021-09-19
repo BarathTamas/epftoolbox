@@ -19,6 +19,67 @@ from epftoolbox.evaluation import MAE, sMAPE
 from sklearn.utils._testing import ignore_warnings
 from sklearn.exceptions import ConvergenceWarning
 
+from enum import Enum
+
+
+class ScalingTypes(Enum):
+    """
+    Scaling factors types used for X data.
+    """
+    NORM = "Norm"
+    NORM1 = "Norm1"
+    STD = "Std"
+    MEDIAN = "Median"
+    INVARIANT = "Invariant"
+
+    def get_member_names(self):
+        return self._member_names_
+
+
+class FeatureLags(object):
+    """
+    Class for handling lags defined for the exogenous features.
+    The lags can be defined in two different ways:
+    1. every feature has the same lags, in this case a list of ints
+    is enough;
+    2. every feature has different lags, in this case a list of list
+    of ints is needed.
+    """
+
+    def __init__(self, lags):
+        # Checking if lags are validly defined
+        assert (isinstance(self.lags, list))
+        self._lags = lags
+
+    def expand_lags(self, n_exog_features):
+        """
+        If every exog. feature has the same lags, then the list of
+        lags needs to be replicated n_exog_features-1 times.
+
+        Parameters
+        ----------
+        n_exog_features
+
+        Returns
+        -------
+        None
+
+        """
+        shared_lags = self._lags
+        for i in range(n_exog_features - 1):
+            self._lags.append(shared_lags)
+
+    def to_list(self):
+        return self._lags
+
+    def __getitem__(self, index):
+        if index >= len(self):
+            raise IndexError("Index out of range")
+        return self._lags[index]
+
+    def __len__(self):
+        return len(self._lags)
+
 
 class LEAR(object):
     """
@@ -74,8 +135,13 @@ class LEAR(object):
 
         # Calibration window in hours
         self.calibration_window = calibration_window
-        self.lags = lags
-        self.scaling_type =scaling_type
+        self.lags = FeatureLags(lags)
+        if scaling_type not in ScalingTypes.get_member_names():
+            raise ValueError("Invalid scaling type specified, check documentation!")
+        self.scaling_type = ScalingTypes[scaling_type]
+        self.const_features = None
+        self.scaler_X = None
+        self.scaler_Y = None
 
     # Ignore convergence warnings from scikit-learn LASSO module
     @ignore_warnings(category=ConvergenceWarning)
@@ -102,10 +168,10 @@ class LEAR(object):
         """
 
         # # Applying Invariant, aka asinh-median transformation to the prices
-        [Y_train], self.scalerY = scaling([Y_train], self.scaling_type)
+        [Y_train], self.scaler_Y = scaling([Y_train], self.scaling_type)
 
         # # Rescaling all inputs except dummies (7 last features)
-        [X_train_no_dummies], self.scalerX = scaling([X_train[:, :-7]], self.scaling_type)
+        [X_train_no_dummies], self.scaler_X = scaling([X_train[:, :-7]], self.scaling_type)
         X_train[:, :-7] = X_train_no_dummies
 
         self.models = {}
@@ -138,7 +204,7 @@ class LEAR(object):
         Yp = np.zeros(24)
 
         # # Rescaling all inputs except dummies (7 last features)
-        X_no_dummies = self.scalerX.transform(X[:, :-7])
+        X_no_dummies = self.scaler_X.transform(X[:, :-7])
         X[:, :-7] = X_no_dummies
 
         # Predicting the current date using a recalibrated LEAR
@@ -146,7 +212,7 @@ class LEAR(object):
             # Predicting test dataset and saving
             Yp[h] = self.models[h].predict(X)
 
-        Yp = self.scalerY.inverse_transform(Yp.reshape(1, -1))
+        Yp = self.scaler_Y.inverse_transform(Yp.reshape(1, -1))
 
         return Yp
 
@@ -202,10 +268,6 @@ class LEAR(object):
             and the input for testing
         """
 
-        # 96 prices + n_exogenous * (24 * 3 exogeneous) + 7 weekday dummies
-        # Price lags: D-1, D-2, D-3, D-7
-        # Exogeneous inputs lags: D, D-1, D-7
-
         # Checking that the first index in the dataframes corresponds with the hour 00:00
         if df_train.index[0].hour != 0 or df_test.index[0].hour != 0:
             print('Problem with the index')
@@ -213,30 +275,21 @@ class LEAR(object):
         # Defining the number of Exogenous inputs
         n_exogenous_inputs = len(df_train.columns) - 1
 
-        # Checking if lags are validly defined
-        assert (isinstance(self.lags, list))
-        # If there are no lagged values
-        if len(self.lags) == 0:
-            lags = []
-            n_features = 96 + 7
+
         # If list of ints given repeat it for all exog. features
-        elif isinstance(self.lags[0], int):
-            lags = []
-            for i in range(n_exogenous_inputs):
-                lags.append(self.lags)
-            n_features = 96 + 7 + n_exogenous_inputs * (len(self.lags) + 1) * 24
+        if isinstance(self.lags[0], int):
+            self.lags.expand(n_exogenous_inputs)
 
         # If list of ints given repeat it for all exog. features
         elif isinstance(self.lags[0], list):
             assert (len(self.lags) == n_exogenous_inputs)
-            lags = self.lags
-            # Calculate number of new features
-            n_new_exog_feat = 0
-            for feat_lags in lags:
-                n_new_exog_feat += (len(feat_lags) + 1) * 24
-            n_features = 96 + 7 + n_new_exog_feat
-        else:
-            raise ValueError("Something is wrong with the list of lags parameter.")
+
+        # Count how many features there will be in total
+        n_new_exog_feat = 0
+        for feat_lags in self.lags:
+            n_new_exog_feat += (len(feat_lags) + 1) * 24
+        n_features = 96 + 7 + n_new_exog_feat
+
 
         # Extracting the predicted dates for testing and training. We leave the first week of data
         # out of the prediction as we the maximum lag can be one week
@@ -288,9 +341,9 @@ class LEAR(object):
                 # We define the corresponding past time indexs using the auxiliary dataframses
                 if calibration:
                     past_index_train = pd.to_datetime(index_train.loc[:, 'h' + str(hour)].values) - \
-                                     pd.Timedelta(hours=24 * past_day)
+                                       pd.Timedelta(hours=24 * past_day)
                 past_index_test = pd.to_datetime(index_test.loc[:, 'h' + str(hour)].values) - \
-                                pd.Timedelta(hours=24 * past_day)
+                                  pd.Timedelta(hours=24 * past_day)
 
                 # We include the historical prices at day D-past_day and hour "h"
                 if calibration:
@@ -303,16 +356,16 @@ class LEAR(object):
         for exog in range(n_exogenous_inputs):
             # For each possible past day where exogenous inputs can be included
             # lag 0 is the original feature!
-            feature_lags = [0] + lags[exog]
+            feature_lags = [0] + self.lags[exog]
             for lag in feature_lags:
                 # For each hour of a day
                 for hour in range(24):
                     # Defining the corresponding past time indices using the auxiliary dataframes
                     if calibration:
                         past_index_train = pd.to_datetime(index_train.loc[:, 'h' + str(hour)].values) - \
-                                         pd.Timedelta(hours=24 * lag)
+                                           pd.Timedelta(hours=24 * lag)
                     past_index_test = pd.to_datetime(index_test.loc[:, 'h' + str(hour)].values) - \
-                                    pd.Timedelta(hours=24 * lag)
+                                      pd.Timedelta(hours=24 * lag)
 
                     # Including the exogenous input at day D-past_day and hour "h"
                     if calibration:
@@ -338,28 +391,21 @@ class LEAR(object):
         # Remove features with 0 scaling factor
         # Only check features for being constant when calibrating
         if calibration:
-            if self.scaling_type == "Invariant":
-                scaling_metric="MAD"
-            elif self.scaling_type== "Std":
-                scaling_metric = "std"
-            elif self.scaling_type in ["Norm","Norm1","Median"]:
+            if self.scaling_type in [ScalingTypes.NORM, ScalingTypes.NORM1, ScalingTypes.MEDIAN]:
                 raise NotImplementedError("Checking scalability not yet implemented for all scaling types!")
-            else:
-                raise ValueError("Invalid scaling_type!")
-            self.find_constant_features(X_train,scaling_metric)
-            X_train=self.remove_constant_features(X_train)
+            self.find_constant_features(X_train, self.scaling_type)
+            X_train = self.remove_constant_features(X_train)
         X_test = self.remove_constant_features(X_test)
 
         return X_train, Y_train, X_test
 
-    def find_constant_features(self,array,scale_metric="MAD"):
-        assert(isinstance(scale_metric,str))
-        if scale_metric in ["MAD","mad"]:
+    def find_constant_features(self, array, scaling_type=ScalingTypes.INVARIANT):
+        if scaling_type is ScalingTypes.INVARIANT:
             self.const_features = np.where(mad(array[:, :-7], axis=0) == 0)[0]
-        elif scale_metric in ["std","Std","STD","stdev","STDEV","variance","var","Var","VAR"]:
+        elif scaling_type is ScalingTypes.STD:
             self.const_features = np.where(np.std(array[:, :-7], axis=0) == 0)[0]
         else:
-            raise ValueError("Invalid scale metric: " + scale_metric)
+            raise ValueError("Invalid scaling type: " + scaling_type)
         return
 
     def remove_constant_features(self, array):
@@ -450,10 +496,11 @@ class LEAR(object):
 
         return Yp
 
+
 def evaluate_lear_in_test_dataset(path_datasets_folder=os.path.join('.', 'datasets'),
-                              path_recalibration_folder=os.path.join('.', 'experimental_files'),
-                              dataset='PJM', years_test=2, calibration_window=364 * 3,
-                              begin_test_date=None, end_test_date=None):
+                                  path_recalibration_folder=os.path.join('.', 'experimental_files'),
+                                  dataset='PJM', years_test=2, calibration_window=364 * 3,
+                                  begin_test_date=None, end_test_date=None):
     """Function for easy evaluation of the LEAR model in a test dataset using daily recalibration.
 
     The test dataset is defined by a market name and the test dates dates. The function
