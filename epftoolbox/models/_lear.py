@@ -67,8 +67,8 @@ class FeatureLags(object):
 
         """
         shared_lags = self._lags
-        for i in range(n_exog_features - 1):
-            self._lags.append(shared_lags)
+        self._lags=[shared_lags for i in range(n_exog_features)]
+        return
 
     def to_list(self):
         return self._lags
