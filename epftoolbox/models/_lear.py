@@ -279,7 +279,7 @@ class LEAR(object):
 
         # If list of ints given repeat it for all exog. features
         if isinstance(self.lags[0], int):
-            self.lags.expand(n_exogenous_inputs)
+            self.lags.expand_lags(n_exogenous_inputs)
 
         # If list of ints given repeat it for all exog. features
         elif isinstance(self.lags[0], list):
