@@ -240,19 +240,14 @@ class LEAR(object):
         max_lag=self.lags.get_max_lag()
         if calibration:
             index_train_long = self._crop_to_lags(df_train,max_lag).index
-
         # For testing, the test dataset is different depending on whether a specific test
         # dataset is provided
         if date_test is None:
             index_test_long = self._crop_to_lags(df_test, max_lag).index
         else:
-            # I have no idea why this is 23 hours so I didnt refactor yet
+            raise NotImplementedError("I have no idea why this is using 23 hours so I didnt refactor yet")
+            # I have no idea why this is using 23 hours so I didnt refactor yet
             index_test_long = df_test.loc[date_test:date_test + pd.Timedelta(hours=23)].index
-
-        # We extract the prediction dates/days.
-        if calibration:
-            pred_dates_train = self._hourly_to_daily_index(index_train_long)
-        pred_dates_test = self._hourly_to_daily_index(index_test_long)
 
         # Creating two auxiliary dataframes to build XY.
         # These dataframes have as indices the first hour of the day (00:00)
@@ -260,12 +255,8 @@ class LEAR(object):
 
         # These dataframes hold hourly indices, organized in days x hours wide format
         if calibration:
-            index_train_wide = pd.DataFrame(index=pred_dates_train, columns=['h' + str(hour) for hour in range(24)])
-        index_test_wide = pd.DataFrame(index=pred_dates_test, columns=['h' + str(hour) for hour in range(24)])
-        for hour in range(24):
-            if calibration:
-                index_train_wide.loc[:, 'h' + str(hour)] = index_train_long.index + pd.Timedelta(hours=hour)
-            index_test_wide.loc[:, 'h' + str(hour)] = index_test_long.index + pd.Timedelta(hours=hour)
+            index_train_wide = self._hourly_long_to_wide_index(index_train_long)
+        index_test_wide = self._hourly_long_to_wide_index(index_test_long)
 
         # Preallocating in memory the X and Y arrays
         if calibration:
@@ -281,15 +272,13 @@ class LEAR(object):
 
         # Adding the historical prices during days D-1, D-2, D-3, and D-7
         # For each possible past day where prices can be included
-        for past_day in [1, 2, 3, 7]:
+        for lag in [1, 2, 3, 7]:
             # For each hour of a day
             for hour in range(24):
                 # We define the corresponding past time indexs using the auxiliary dataframses
                 if calibration:
-                    past_index_train = pd.to_datetime(index_train_wide.loc[:, 'h' + str(hour)].values) - \
-                                       pd.Timedelta(hours=24 * past_day)
-                past_index_test = pd.to_datetime(index_test_wide.loc[:, 'h' + str(hour)].values) - \
-                                  pd.Timedelta(hours=24 * past_day)
+                    past_index_train = self._get_lagged_index_at_hour(index_train_wide, hour, lag)
+                past_index_test = self._get_lagged_index_at_hour(index_test_wide, hour, lag)
 
                 # We include the historical prices at day D-past_day and hour "h"
                 if calibration:
@@ -308,10 +297,8 @@ class LEAR(object):
                 for hour in range(24):
                     # Defining the corresponding past time indices using the auxiliary dataframes
                     if calibration:
-                        past_index_train = pd.to_datetime(index_train_wide.loc[:, 'h' + str(hour)].values) - \
-                                           pd.Timedelta(hours=24 * lag)
-                    past_index_test = pd.to_datetime(index_test_wide.loc[:, 'h' + str(hour)].values) - \
-                                      pd.Timedelta(hours=24 * lag)
+                        past_index_train = self._get_lagged_index_at_hour(index_train_wide, hour, lag)
+                    past_index_test = self._get_lagged_index_at_hour(index_test_wide, hour, lag)
 
                     # Including the exogenous input at day D-past_day and hour "h"
                     if calibration:
@@ -365,7 +352,28 @@ class LEAR(object):
         """
         return df.loc[df.index[0] + pd.Timedelta(days=max_lag):]
 
-    def _hourly_to_daily_index(self, index):
+    def _hourly_long_to_wide_index(self,index_hourly_long):
+        """
+        Reshapes 1D hourly DatetimeIndex to 2D day x hour format.
+
+        Parameters
+        ----------
+        index_hourly_long: pandas.core.indexes.datetimes.DatetimeIndex
+            the original 1D index in hourly frequency
+
+        Returns
+        -------
+        pandas.DataFrame
+            the new 2D index in hourly frequency
+
+        """
+        index_daily=self._hourly_to_daily_index(index_hourly_long)
+        index_hourly_wide = pd.DataFrame(index=index_daily, columns=['h' + str(hour) for hour in range(24)])
+        for hour in range(24):
+            index_hourly_wide.loc[:, 'h' + str(hour)] = index_hourly_wide.index + pd.Timedelta(hours=hour)
+        return index_hourly_wide
+
+    def _hourly_to_daily_index(self, index_hourly):
         """
         Resamples DatetimeIndex from hourly frequency to daily frequency.
 
@@ -380,12 +388,28 @@ class LEAR(object):
             the new index in daily frequency
 
         """
-        assert(isinstance(index,pd.core.indexes.datetimes.DatetimeIndex))
-        return index.round('1H')[::24]
+        assert(isinstance(index_hourly,pd.core.indexes.datetimes.DatetimeIndex))
+        return index_hourly.round('1H')[::24]
 
-    def _get_lagged_index(self, hourly_index, past_day):
-        return pd.to_datetime(index_train.loc[:, 'h' + str(hour)].values) - \
-                                       pd.Timedelta(hours=24 * past_day)
+    def _get_lagged_index_at_hour(self,index_hourly_wide, hour, lag)
+        """
+        Selects the appropriately lagged hourly index values from the original
+        2D (day x hour) index dataframe's given hour column. This is needed
+        as the lagged features get built hour-by-hour.
+
+        Parameters
+        ----------
+        index_hourly_wide: pandas.DataFrame
+            the original wide format 2D index (day x hour)
+
+        Returns
+        -------
+        pandas.core.indexes.datetimes.DatetimeIndex
+            the new 1D lagged index at a given hour
+
+        """
+        return pd.to_datetime(index_hourly_wide.loc[:, 'h' + str(hour)].values) - \
+                                       pd.Timedelta(hours=24 * lag)
 
     def _find_constant_features(self, array, scaling_type=ScalingTypes.INVARIANT):
         if scaling_type is ScalingTypes.INVARIANT:
