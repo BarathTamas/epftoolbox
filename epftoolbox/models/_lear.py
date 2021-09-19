@@ -48,7 +48,7 @@ class FeatureLags(object):
 
     def __init__(self, lags):
         # Checking if lags are validly defined
-        assert (isinstance(self.lags, list))
+        assert (isinstance(lags, list))
         self._lags = lags
 
     def expand_lags(self, n_exog_features):
