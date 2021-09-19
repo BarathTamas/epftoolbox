@@ -19,7 +19,7 @@ from epftoolbox.evaluation import MAE, sMAPE
 from sklearn.utils._testing import ignore_warnings
 from sklearn.exceptions import ConvergenceWarning
 
-from epftoolbox.models import ScalingTypes, FeatureLags
+from epftoolbox.models._utils import ScalingTypes, FeatureLags
 
 class LEAR(object):
     """
