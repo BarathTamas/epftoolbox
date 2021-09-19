@@ -161,3 +161,48 @@ def read_data(path, dataset='PJM', years_test=2, begin_test_date=None, end_test_
         df_test = data.loc[begin_test_date:end_test_date, :]
 
     return df_train, df_test
+
+
+def read_data_from_pandas(data, years_test=2, begin_test_date=None, end_test_date=None):
+    """
+    Modified method for using dataframe from memory
+    """
+
+    columns = ['Price']
+    n_exogeneous_inputs = len(data.columns) - 1
+
+    for n_ex in range(1, n_exogeneous_inputs + 1):
+        columns.append('Exogenous ' + str(n_ex))
+
+    data.columns = columns
+
+    # The training and test datasets can be defined by providing a number of years for testing
+    # or by providing the init and end date of the test period
+    if begin_test_date is None and end_test_date is None:
+        number_datapoints = len(data.index)
+        number_training_datapoints = number_datapoints - 24 * 364 * years_test
+
+        # We consider that a year is 52 weeks (364 days) instead of the traditional 365
+        df_train = data.loc[:data.index[0] + pd.Timedelta(hours=number_training_datapoints - 1), :]
+        df_test = data.loc[data.index[0] + pd.Timedelta(hours=number_training_datapoints):, :]
+
+    else:
+        try:
+            begin_test_date = pd.to_datetime(begin_test_date, dayfirst=True)
+            end_test_date = pd.to_datetime(end_test_date, dayfirst=True)
+        except ValueError:
+            print("Provided values for dates are not valid")
+
+        if begin_test_date.hour != 0:
+            raise Exception("Starting date for test dataset should be midnight")
+        if end_test_date.hour != 23:
+            if end_test_date.hour == 0:
+                end_test_date = end_test_date + pd.Timedelta(hours=23)
+            else:
+                raise Exception("End date for test dataset should be at 0h or 23h")
+
+        print('Test datasets: {} - {}'.format(begin_test_date, end_test_date))
+        df_train = data.loc[:begin_test_date - pd.Timedelta(hours=1), :]
+        df_test = data.loc[begin_test_date:end_test_date, :]
+
+    return df_train, df_test
