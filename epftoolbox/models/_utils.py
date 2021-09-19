@@ -49,6 +49,9 @@ class FeatureLags(object):
         self._lags=[shared_lags for i in range(n_exog_features)]
         return
 
+    def get_max_lag(self):
+        return max([max(sublist) for sublist in self._lags])
+
     def to_list(self):
         return self._lags
 

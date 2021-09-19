@@ -21,6 +21,7 @@ from sklearn.exceptions import ConvergenceWarning
 
 from epftoolbox.models._utils import ScalingTypes, FeatureLags
 
+
 class LEAR(object):
     """
     New version of the class used to build a LEAR model, recalibrate it, and predict DA electricity prices.
@@ -231,44 +232,49 @@ class LEAR(object):
         n_features = 96 + 7 + n_new_exog_feat
 
 
-        # Extracting the predicted dates for testing and training. We leave the first week of data
-        # out of the prediction as we the maximum lag can be one week
+        # Extracting the predicted dates for testing and training. Some data needs to be left out,
+        # as it does not have enough history for the specified lags
 
         # We define the potential time indexes that have to be forecasted in training
         # and testing
+        max_lag=self.lags.get_max_lag()
         if calibration:
-            index_train = df_train.loc[df_train.index[0] + pd.Timedelta(weeks=1):].index
+            index_train_long = self._crop_to_lags(df_train,max_lag).index
 
         # For testing, the test dataset is different depending on whether a specific test
         # dataset is provided
         if date_test is None:
-            index_test = df_test.loc[df_test.index[0] + pd.Timedelta(weeks=1):].index
+            index_test_long = self._crop_to_lags(df_test, max_lag).index
         else:
-            index_test = df_test.loc[date_test:date_test + pd.Timedelta(hours=23)].index
+            # I have no idea why this is 23 hours so I didnt refactor yet
+            index_test_long = df_test.loc[date_test:date_test + pd.Timedelta(hours=23)].index
+
         # We extract the prediction dates/days.
         if calibration:
-            pred_dates_train = index_train.round('1H')[::24]
-        pred_dates_test = index_test.round('1H')[::24]
+            pred_dates_train = self._hourly_to_daily_index(index_train_long)
+        pred_dates_test = self._hourly_to_daily_index(index_test_long)
 
-        # We create two dataframe to build XY.
+        # Creating two auxiliary dataframes to build XY.
         # These dataframes have as indices the first hour of the day (00:00)
         # and the columns represent the 23 possible horizons/dates along a day
+
+        # These dataframes hold hourly indices, organized in days x hours wide format
         if calibration:
-            index_train = pd.DataFrame(index=pred_dates_train, columns=['h' + str(hour) for hour in range(24)])
-        index_test = pd.DataFrame(index=pred_dates_test, columns=['h' + str(hour) for hour in range(24)])
+            index_train_wide = pd.DataFrame(index=pred_dates_train, columns=['h' + str(hour) for hour in range(24)])
+        index_test_wide = pd.DataFrame(index=pred_dates_test, columns=['h' + str(hour) for hour in range(24)])
         for hour in range(24):
             if calibration:
-                index_train.loc[:, 'h' + str(hour)] = index_train.index + pd.Timedelta(hours=hour)
-            index_test.loc[:, 'h' + str(hour)] = index_test.index + pd.Timedelta(hours=hour)
+                index_train_wide.loc[:, 'h' + str(hour)] = index_train_long.index + pd.Timedelta(hours=hour)
+            index_test_wide.loc[:, 'h' + str(hour)] = index_test_long.index + pd.Timedelta(hours=hour)
 
         # Preallocating in memory the X and Y arrays
         if calibration:
-            X_train = np.zeros([index_train.shape[0], n_features])
-            Y_train = np.zeros([index_train.shape[0], 24])
+            X_train = np.zeros([index_train_wide.shape[0], n_features])
+            Y_train = np.zeros([index_train_wide.shape[0], 24])
         else:
             X_train = None
             Y_train = None
-        X_test = np.zeros([index_test.shape[0], n_features])
+        X_test = np.zeros([index_test_wide.shape[0], n_features])
 
         # Variable keeping track of nr of features built so far
         feature_index = 0
@@ -280,9 +286,9 @@ class LEAR(object):
             for hour in range(24):
                 # We define the corresponding past time indexs using the auxiliary dataframses
                 if calibration:
-                    past_index_train = pd.to_datetime(index_train.loc[:, 'h' + str(hour)].values) - \
+                    past_index_train = pd.to_datetime(index_train_wide.loc[:, 'h' + str(hour)].values) - \
                                        pd.Timedelta(hours=24 * past_day)
-                past_index_test = pd.to_datetime(index_test.loc[:, 'h' + str(hour)].values) - \
+                past_index_test = pd.to_datetime(index_test_wide.loc[:, 'h' + str(hour)].values) - \
                                   pd.Timedelta(hours=24 * past_day)
 
                 # We include the historical prices at day D-past_day and hour "h"
@@ -302,9 +308,9 @@ class LEAR(object):
                 for hour in range(24):
                     # Defining the corresponding past time indices using the auxiliary dataframes
                     if calibration:
-                        past_index_train = pd.to_datetime(index_train.loc[:, 'h' + str(hour)].values) - \
+                        past_index_train = pd.to_datetime(index_train_wide.loc[:, 'h' + str(hour)].values) - \
                                            pd.Timedelta(hours=24 * lag)
-                    past_index_test = pd.to_datetime(index_test.loc[:, 'h' + str(hour)].values) - \
+                    past_index_test = pd.to_datetime(index_test_wide.loc[:, 'h' + str(hour)].values) - \
                                       pd.Timedelta(hours=24 * lag)
 
                     # Including the exogenous input at day D-past_day and hour "h"
@@ -317,14 +323,14 @@ class LEAR(object):
         # For each day of the week
         for dayofweek in range(7):
             if calibration:
-                X_train[index_train.index.dayofweek == dayofweek, feature_index] = 1
-            X_test[index_test.index.dayofweek == dayofweek, feature_index] = 1
+                X_train[index_train_wide.index.dayofweek == dayofweek, feature_index] = 1
+            X_test[index_test_wide.index.dayofweek == dayofweek, feature_index] = 1
             feature_index += 1
         # Extracting the predicted values Y
         for hour in range(24):
             # Defining time index at hour h
             if calibration:
-                future_index_train = pd.to_datetime(index_train.loc[:, 'h' + str(hour)].values)
+                future_index_train = pd.to_datetime(index_train_wide.loc[:, 'h' + str(hour)].values)
                 # Extracting Y value based on time indices
                 Y_train[:, hour] = df_train.loc[future_index_train, 'Price']
 
@@ -333,13 +339,55 @@ class LEAR(object):
         if calibration:
             if self.scaling_type in [ScalingTypes.NORM, ScalingTypes.NORM1, ScalingTypes.MEDIAN]:
                 raise NotImplementedError("Checking scalability not yet implemented for all scaling types!")
-            self.find_constant_features(X_train, self.scaling_type)
-            X_train = self.remove_constant_features(X_train)
-        X_test = self.remove_constant_features(X_test)
+            self._find_constant_features(X_train, self.scaling_type)
+            X_train = self._remove_constant_features(X_train)
+        X_test = self._remove_constant_features(X_test)
 
         return X_train, Y_train, X_test
 
-    def find_constant_features(self, array, scaling_type=ScalingTypes.INVARIANT):
+    def _crop_to_lags(df, max_lag=7):
+        """
+        When lagged features are used, some data with not enough history needs to
+        be discarded.
+
+        Parameters
+        ----------
+        df: pandas.DataFrame
+            the dataframe holding the data
+        max_lag: int
+            the largest lag applied to any feature in days
+
+        Returns
+        -------
+        pandas.DataFrame
+            cropped view of the pandas dataframe
+
+        """
+        return df.loc[df.index[0] + pd.Timedelta(days=max_lag):]
+
+    def _hourly_to_daily_index(self, index):
+        """
+        Resamples DatetimeIndex from hourly frequency to daily frequency.
+
+        Parameters
+        ----------
+        index: pandas.core.indexes.datetimes.DatetimeIndex
+            the original index in hourly frequency
+
+        Returns
+        -------
+        pandas.core.indexes.datetimes.DatetimeIndex
+            the new index in daily frequency
+
+        """
+        assert(isinstance(index,pd.core.indexes.datetimes.DatetimeIndex))
+        return index.round('1H')[::24]
+
+    def _get_lagged_index(self, hourly_index, past_day):
+        return pd.to_datetime(index_train.loc[:, 'h' + str(hour)].values) - \
+                                       pd.Timedelta(hours=24 * past_day)
+
+    def _find_constant_features(self, array, scaling_type=ScalingTypes.INVARIANT):
         if scaling_type is ScalingTypes.INVARIANT:
             self.const_features = np.where(mad(array[:, :-7], axis=0) == 0)[0]
         elif scaling_type is ScalingTypes.STD:
@@ -348,7 +396,7 @@ class LEAR(object):
             raise ValueError("Invalid scaling type: " + scaling_type)
         return
 
-    def remove_constant_features(self, array):
+    def _remove_constant_features(self, array):
         array = np.concatenate([np.delete(array[:, :-7], self.const_features, axis=1), array[:, -7:]], axis=1)
         return array
 
