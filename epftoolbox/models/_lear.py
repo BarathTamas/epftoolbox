@@ -136,9 +136,10 @@ class LEAR(object):
         # Calibration window in hours
         self.calibration_window = calibration_window
         self.lags = FeatureLags(lags)
-        if scaling_type not in ScalingTypes.get_member_names():
+        self._scaling_enum=ScalingTypes
+        if scaling_type not in self._scaling_enum.get_member_names():
             raise ValueError("Invalid scaling type specified, check documentation!")
-        self.scaling_type = ScalingTypes[scaling_type]
+        self.scaling_type = self._scaling_enum[scaling_type]
         self.const_features = None
         self.scaler_X = None
         self.scaler_Y = None
