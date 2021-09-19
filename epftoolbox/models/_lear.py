@@ -139,7 +139,7 @@ class LEAR(object):
         self.lags = FeatureLags(lags)
         if not ScalingTypes.has_value(scaling_type):
             raise ValueError("Invalid scaling type specified, check documentation!")
-        self.scaling_type = ScalingTypes[scaling_type]
+        self.scaling_type = ScalingTypes(scaling_type)
         self.const_features = None
         self.scaler_X = None
         self.scaler_Y = None
