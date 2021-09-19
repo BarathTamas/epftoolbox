@@ -32,8 +32,9 @@ class ScalingTypes(Enum):
     MEDIAN = "Median"
     INVARIANT = "Invariant"
 
-    def get_member_names(self):
-        return self._member_names_
+    @classmethod
+    def has_value(cls, value):
+        return value in [v.value for v in cls.__members__.values()]
 
 
 class FeatureLags(object):
@@ -136,10 +137,9 @@ class LEAR(object):
         # Calibration window in hours
         self.calibration_window = calibration_window
         self.lags = FeatureLags(lags)
-        self._scaling_enum=ScalingTypes
-        if scaling_type not in self._scaling_enum.get_member_names():
+        if not ScalingTypes.has_value(scaling_type):
             raise ValueError("Invalid scaling type specified, check documentation!")
-        self.scaling_type = self._scaling_enum[scaling_type]
+        self.scaling_type = ScalingTypes[scaling_type]
         self.const_features = None
         self.scaler_X = None
         self.scaler_Y = None
