@@ -169,10 +169,10 @@ class LEAR(object):
         """
 
         # # Applying Invariant, aka asinh-median transformation to the prices
-        [Y_train], self.scaler_Y = scaling([Y_train], self.scaling_type)
+        [Y_train], self.scaler_Y = scaling([Y_train], self.scaling_type.value)
 
         # # Rescaling all inputs except dummies (7 last features)
-        [X_train_no_dummies], self.scaler_X = scaling([X_train[:, :-7]], self.scaling_type)
+        [X_train_no_dummies], self.scaler_X = scaling([X_train[:, :-7]], self.scaling_type.value)
         X_train[:, :-7] = X_train_no_dummies
 
         self.models = {}
