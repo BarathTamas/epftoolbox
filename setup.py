@@ -22,6 +22,7 @@ setup(
                       'pandas>=1', 'numpy>=1', 'statsmodels>=0.11',
                       'matplotlib>=3', 'scipy>=1.4'],
     packages=find_packages(include=['epftoolbox', 'epftoolbox.*']),
+    include_package_data=True,
     classifiers=[
     'Development Status :: 3 - Alpha',
 
