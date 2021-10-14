@@ -391,7 +391,7 @@ class LEAR(object):
         assert(isinstance(index_hourly,pd.core.indexes.datetimes.DatetimeIndex))
         return index_hourly.round('1H')[::24]
 
-    def _get_lagged_index_at_hour(self,index_hourly_wide, hour, lag)
+    def _get_lagged_index_at_hour(self,index_hourly_wide, hour, lag):
         """
         Selects the appropriately lagged hourly index values from the original
         2D (day x hour) index dataframe's given hour column. This is needed
