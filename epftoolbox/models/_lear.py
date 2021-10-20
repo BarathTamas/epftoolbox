@@ -216,19 +216,24 @@ class LEAR(object):
         # Defining the number of Exogenous inputs
         n_exogenous_inputs = len(df_train.columns) - 1
 
-        # If list of ints given repeat it for all exog. features
-        if isinstance(self.lags[0], int):
-            self.lags.expand_lags(n_exogenous_inputs)
+        if n_exogenous_inputs > 0:
+            # If list of ints given repeat it for all exog. features
+            if isinstance(self.lags[0], int):
+                self.lags.expand_lags(n_exogenous_inputs)
 
-        # If list of ints given repeat it for all exog. features
-        elif isinstance(self.lags[0], list):
-            assert (len(self.lags) == n_exogenous_inputs)
-  
-        # Count how many features there will be in total
-        n_new_exog_feat = 0
-        for feat_lags in self.lags:
-            n_new_exog_feat += (len(feat_lags) + 1) * 24
-        n_features = 96 + 7 + n_new_exog_feat
+            # If list of ints given repeat it for all exog. features
+            elif isinstance(self.lags[0], list):
+                assert (len(self.lags) == n_exogenous_inputs)
+
+            # Count how many features there will be in total
+            n_new_exog_feat = 0
+            for feat_lags in self.lags:
+                n_new_exog_feat += (len(feat_lags) + 1) * 24
+            n_features = 96 + 7 + n_new_exog_feat
+        else:
+            # no exog. features
+            n_new_exog_feat = 0
+            n_features = 96 + 7 + n_new_exog_feat
 
 
         # Extracting the predicted dates for testing and training. Some data needs to be left out,
