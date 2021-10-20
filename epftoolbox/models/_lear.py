@@ -241,7 +241,11 @@ class LEAR(object):
 
         # We define the potential time indexes that have to be forecasted in training
         # and testing
-        max_lag=self.lags.get_max_lag()
+        # 7 comes from D-7 for historical prices
+        if n_exogenous_inputs > 0:
+            max_lag=max(self.lags.get_max_lag(), 7)
+        else:
+            max_lag = 7
         if calibration:
             index_train_long = self._crop_to_lags(df_train,max_lag).index
         # For testing, the test dataset is different depending on whether a specific test
@@ -249,7 +253,6 @@ class LEAR(object):
         if date_test is None:
             index_test_long = self._crop_to_lags(df_test, max_lag).index
         else:
-            raise NotImplementedError("I have no idea why this is using 23 hours so I didnt refactor yet")
             # I have no idea why this is using 23 hours so I didnt refactor yet
             index_test_long = df_test.loc[date_test:date_test + pd.Timedelta(hours=23)].index
 
@@ -336,7 +339,7 @@ class LEAR(object):
 
         return X_train, Y_train, X_test
 
-    def _crop_to_lags(df, max_lag=7):
+    def _crop_to_lags(self, df, max_lag=7):
         """
         When lagged features are used, some data with not enough history needs to
         be discarded.
