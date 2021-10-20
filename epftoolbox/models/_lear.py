@@ -223,7 +223,10 @@ class LEAR(object):
 
             # If list of ints given repeat it for all exog. features
             elif isinstance(self.lags[0], list):
-                assert (len(self.lags) == n_exogenous_inputs)
+                if len(self.lags) != n_exogenous_inputs:
+                    msg = "there are {} exog. features but {} set of lags \
+                          is defined".format(n_exogenous_inputs,len(self.lags))
+                    raise ValueError(msg)
 
             # Count how many features there will be in total
             n_new_exog_feat = 0
