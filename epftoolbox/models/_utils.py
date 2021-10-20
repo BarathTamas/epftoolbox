@@ -28,8 +28,12 @@ class FeatureLags(object):
 
     def __init__(self, lags):
         # Checking if lags are validly defined
-        assert (isinstance(lags, list))
-        self._lags = lags
+        if isinstance(lags, list):
+            self._lags = lags
+        elif lags is None:
+            self._lags = []
+        else:
+            raise TypeError()
 
     def expand_lags(self, n_exog_features):
         """
@@ -46,7 +50,7 @@ class FeatureLags(object):
 
         """
         shared_lags = self._lags
-        self._lags=[shared_lags for i in range(n_exog_features)]
+        self._lags = [shared_lags for i in range(n_exog_features)]
         return
 
     def get_max_lag(self):

@@ -216,7 +216,6 @@ class LEAR(object):
         # Defining the number of Exogenous inputs
         n_exogenous_inputs = len(df_train.columns) - 1
 
-
         # If list of ints given repeat it for all exog. features
         if isinstance(self.lags[0], int):
             self.lags.expand_lags(n_exogenous_inputs)
@@ -224,7 +223,7 @@ class LEAR(object):
         # If list of ints given repeat it for all exog. features
         elif isinstance(self.lags[0], list):
             assert (len(self.lags) == n_exogenous_inputs)
-
+  
         # Count how many features there will be in total
         n_new_exog_feat = 0
         for feat_lags in self.lags:
